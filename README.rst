@@ -9,8 +9,10 @@ everyone included in the project.
 **once an idea has been selected as initially planned.**
 
 
-Jeff (RPG)
+Jeff
 ####
+**Genre: RPG**
+
 * Welcome message - leads into realm & race selection
 * Send player on rewarding quests, they wait until quest is done
     * Turn-based battle system - either automated by updating messages
