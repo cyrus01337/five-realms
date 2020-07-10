@@ -2,11 +2,15 @@
 
 """
 import asyncio
+# import random
+import time
+
+import discord
 from discord.ext import commands
 
 import checks
 import constants
-import database
+# import database
 import utils
 from enums import Class
 from enums import Emoji
@@ -18,20 +22,55 @@ from objects import Field
 class FiveRealmsCog(commands.Cog, name="RPG"):
     def __init__(self, bot):
         self.bot = bot
-        self.DEFAULT = {
+        self.DEFAULT_PARAMS = {
             "level": 1,
             "exp": 0,
             "class_type": Class.none.name
         }
 
-    def check(self, ctx, iterable, event):
-        check = None
+    def check(self, author_id, message, iterable):
+        def predicate(reaction, user):
+            return (user.id == author_id
+                    and message.id == reaction.message.id
+                    and str(reaction.emoji) in iterable)
+        return predicate
 
-        if event == "reaction_add":
-            def check(reaction, user):
-                return (user.id == ctx.author.id
-                        and str(reaction.emoji) in iterable)
-        return check
+    async def wait_for(self, message, reactions, timeout,
+                       title=None, desc=None, fields=None, enums=None,
+                       author_id=None):
+        ret = []
+        author_id = author_id or message.author.id
+        embed = utils.embed(self.bot, title=title,
+                            desc=desc, fields=fields)
+
+        if isinstance(message, discord.abc.Messageable):
+            message = await message.send(embed=embed)
+            ret.append(message)
+        elif isinstance(message, discord.Message):
+            await message.edit(embed=embed)
+        kwargs = dict(check=self.check(author_id, message, reactions),
+                      timeout=timeout)
+
+        for emoji in reactions:
+            await message.add_reaction(emoji)
+
+        try:
+            received, _ = await self.bot.wait_for("reaction_add", **kwargs)
+        except asyncio.TimeoutError as e:
+            await message.clear_reactions()
+            raise e
+        else:
+            received = str(received)
+            ret.append(received)
+
+            if enums is not None:
+                for enum in enums:
+                    if received == enum.value.emoji:
+                        ret.append(enum)
+                        break
+        if len(ret) == 1:
+            ret = ret[0]
+        return ret
 
     @checks.confirm_existence(exists=False)
     @commands.command()
@@ -42,128 +81,132 @@ class FiveRealmsCog(commands.Cog, name="RPG"):
         player_realm = None
         player_race = None
         races = None
+        user_id = ctx.author.id
         fields = []
         reactions = []
         realms = Realm.all()
 
         for realm in realms:
             emoji = realm.value.emoji
-            field = Field(f"{emoji} {realm.name}", "desc")
+            field = Field(f"{emoji} {realm.name}", realm.value.desc)
             fields.append(field)
             reactions.append(emoji)
+
         embed = utils.embed(
             self.bot,
-            desc="haha the developer is lazy",
+            desc=("Welcome to the character registration! What realm would "
+                  "you like to be in? Take your time to think on it."),
             fields=fields
         )
         message = await ctx.send(embed=embed)
 
-        for emoji in reactions:
-            await message.add_reaction(emoji)
+        for reaction in reactions:
+            await message.add_reaction(reaction)
 
         try:
-            selected, _ = await self.bot.wait_for(
+            reaction, _ = await self.bot.wait_for(
                 "reaction_add",
-                check=self.check(ctx, reactions, "reaction_add"),
+                check=self.check(user_id, message, reactions),
                 timeout=120.0
             )
         except asyncio.TimeoutError:
             return await message.clear_reactions()
         else:
-            selected = str(selected)
-
             for realm in realms:
-                if selected == realm.value.emoji:
+                if str(reaction.emoji) == realm.value.emoji:
                     player_realm = realm
                     break
-        races = Race.in_realm(player_realm)
+
         fields.clear()
         reactions.clear()
+        races = Race.within(player_realm)
 
         for race in races:
-            name = race.name.replace("_", " ")
             emoji = race.value.emoji
-            field = Field(f"{emoji} {name}", "desc")
+            field = Field(f"{emoji} {race.name}", race.value.desc)
             fields.append(field)
             reactions.append(emoji)
+
         embed = utils.embed(
             self.bot,
-            desc=f"Realm selected: `{player_realm.name}`",
+            desc=(f"Alright, so you'd like to join the **{player_realm.name}** "
+                  f"realm. Here are the races from there, please take your "
+                  f"pick."),
             fields=fields
         )
         await message.clear_reactions()
         await message.edit(embed=embed)
 
-        for emoji in reactions:
-            await message.add_reaction(emoji)
+        for reaction in reactions:
+            await message.add_reaction(reaction)
 
         try:
-            selected, _ = await self.bot.wait_for(
+            reaction, _ = await self.bot.wait_for(
                 "reaction_add",
-                check=self.check(ctx, reactions, "reaction_add"),
+                check=self.check(user_id, message, reactions),
                 timeout=120.0
             )
         except asyncio.TimeoutError:
             return await message.clear_reactions()
         else:
-            selected = str(selected)
-
             for race in races:
-                if selected == race.value.emoji:
+                if str(reaction.emoji) == race.value.emoji:
                     player_race = race
                     break
-        race_name = player_race.name.replace("_", " ")
-        reactions = (Emoji.WHITE_HEAVY_CHECK_MARK, Emoji.CROSS_MARK)
+
+        fields = (
+            Field("Realm", f"{player_realm.value.emoji} {player_realm.name}"),
+            Field("Race", f"{player_race.value.emoji} {player_race.name}")
+        )
+        reactions = (
+            Emoji.WHITE_HEAVY_CHECK_MARK,
+            Emoji.CROSS_MARK
+        )
         embed = utils.embed(
             self.bot,
-            desc=("Here is what you've selected. Are these details "
-                  "correct?\n\n"
+            desc=("Here is what you've selected. Are these details correct?\n\n"
 
                   "**Note**\n"
-                  "Once you've selected them you can't change them until "
-                  "every first Friday of the month!"),
-            fields=(
-                Field("Realm", (f"{player_realm.value.emoji} "
-                                f"{player_realm.name}")),
-                Field("Race", f"{player_race.value.emoji} {race_name}")
-            )
+                  "Once you've selected them, you cannot change them until the "
+                  "first Friday of this/next month!"),
+            fields=fields
         )
         await message.clear_reactions()
         await message.edit(embed=embed)
 
-        for emoji in reactions:
-            await message.add_reaction(emoji)
+        for reaction in reactions:
+            await message.add_reaction(reaction)
 
         try:
-            selected, _ = await self.bot.wait_for(
+            reaction, _ = await self.bot.wait_for(
                 "reaction_add",
-                check=self.check(ctx, reactions, "reaction_add"),
-                timeout=120.0
+                check=self.check(user_id, message, reactions),
+                timeout=30.0
             )
         except asyncio.TimeoutError:
             return await message.clear_reactions()
         else:
-            selected = str(selected)
+            title = "Oh... Uh oh"
+            desc = ("It seems we've made a mistake... We can go through the "
+                    "registration process again if you like! Just run the "
+                    "command again when you're ready and we'll start over from "
+                    "scratch!")
 
-            if selected == Emoji.WHITE_HEAVY_CHECK_MARK:
+            if str(reaction.emoji) == Emoji.WHITE_HEAVY_CHECK_MARK:
+                title = "Registration Complete"
                 desc = (f"Done! You are now a(n) {player_race.value.emoji} "
-                        f"**{race_name}** from the **{player_realm.name}** "
-                        f"Realm. Welcome to the Five Realms family!")
-                args = (ctx.author.id, player_realm.name, player_race.name)
-                embed = utils.embed(self.bot, title="Registration Complete",
-                                    desc=desc)
+                        f"**{player_race.name}** from the "
+                        f"**{player_realm.name}** realm. Welcome to the "
+                        f"**Five Realms** family!")
+                params = (user_id, player_realm.name, player_race.name)
 
-                await database.insert(*args, **self.DEFAULT)
-            elif selected == Emoji.CROSS_MARK:
-                embed = utils.embed(
-                    self.bot,
-                    title="Oh... Uh oh",
-                    desc=("It seems we've made a mistake... We can go through "
-                          "the registration process again if you like! Just "
-                          "run the command again and we'll start over from "
-                          "scratch!")
-                )
-        finally:
+                await self.bot.db.insert(*params, **self.DEFAULT_PARAMS)
+
+            embed = utils.embed(
+                self.bot,
+                title=title,
+                desc=desc
+            )
             await message.clear_reactions()
             await message.edit(embed=embed)
 
@@ -175,7 +218,7 @@ class FiveRealmsCog(commands.Cog, name="RPG"):
         """
         notes = None
         fields = None
-        player = await database.get_user(ctx.author.id)
+        player = await self.bot.db.get_player(ctx.author.id)
         race_name = player.race.name.replace("_", " ")
         cls = player.get_class()
 
@@ -183,9 +226,7 @@ class FiveRealmsCog(commands.Cog, name="RPG"):
             notes = constants.NO_CLASS
 
         if notes is not None:
-            fields = (
-                Field("Notes", f"{Emoji.CLIPBOARD} {notes}"),
-            )
+            fields = Field("Notes", f"{Emoji.CLIPBOARD} {notes}")
 
         embed = utils.embed(
             self.bot,
@@ -230,7 +271,7 @@ class FiveRealmsCog(commands.Cog, name="RPG"):
         """
         Be whatever you want to be!
         """
-        player = await database.get_user(ctx.author.id)
+        player = await self.bot.db.get_player(ctx.author.id)
         classes = {str.lower(cls.name): cls for cls in Class.all()}
         class_type = class_type.lower()
 
@@ -245,8 +286,106 @@ class FiveRealmsCog(commands.Cog, name="RPG"):
             title="Congratulations!",
             desc=f"You're now a **{class_type.name}!**"
         )
-        await player.save()
+        await self.bot.db.save(player)
         await ctx.send(embed=embed)
+
+    @checks.confirm_existence(exists=True)
+    @checks.dms_enabled()
+    @commands.command()
+    async def fight(self, ctx, member: discord.Member):
+        """
+        Get some practice in and spar with a friend or test your mettle
+        against a fearsome fighter
+        """
+        await utils.ensure_existence(member, exists=True, bot=self.bot)
+        kwargs = {}
+
+        if ctx.author == member:
+            kwargs.setdefault("title", "So...")
+            kwargs.setdefault("desc", "Care to explain how that would work?")
+        elif member.bot:
+            desc = "They have lasers!"
+
+            if member.id == self.bot.user.id:
+                desc += " Including me..."
+            kwargs.setdefault("title", "You shouldn't be fighting robots...")
+            kwargs.setdefault("desc", desc)
+
+        if kwargs != dict():
+            embed = utils.embed(self.bot, **kwargs)
+            await ctx.send(embed=embed)
+        else:
+            start_time = time.time()
+            reactions = (Emoji.WHITE_HEAVY_CHECK_MARK, Emoji.CROSS_MARK)
+            # replace self.wait_for() with comprising functions/methods
+            message, reaction = await self.wait_for(
+                ctx,
+                reactions,
+                timeout=30.0,
+                title="Ooo...",
+                desc=(f"{member.mention}, your **mettle** has been challenged "
+                      f"by {ctx.author.mention}! Do you accept?"),
+                author_id=member.id
+            )
+
+            if reaction == Emoji.CROSS_MARK:
+                coroutine = message.edit
+                embed = utils.embed(
+                    self.bot,
+                    title="That was unexpected...",
+                    desc=f"Maybe {member.mention}'s having a bad day?"
+                )
+
+                if time.time() - start_time >= 20:
+                    coroutine = ctx.send
+                await coroutine(embed=embed)
+            elif reaction == Emoji.WHITE_HEAVY_CHECK_MARK:
+                coroutines = []
+                members = (ctx.author, member)
+                reactions = (
+                    Emoji.CROSSED_SWORDS,
+                    Emoji.SHIELD,
+                    Emoji.ARROW_LEFT
+                )
+                actions = (
+                    "Fight",
+                    "Defend",
+                    "Flee"
+                )
+                fields = []
+
+                for emoji, action in zip(reactions, actions):
+                    field = Field(f"{emoji} {action}")
+                    fields.append(field)
+
+                for member in members:
+                    coroutines.append(
+                        self.wait_for(
+                            member,
+                            reactions,
+                            timeout=30.0,
+                            title="Fight",
+                            desc="What would you like to do?",
+                            fields=fields,
+                            author_id=member.id
+                        )
+                    )
+                done, pending = await asyncio.wait(
+                    coroutines,
+                    timeout=30.0,
+                    return_when=asyncio.ALL_COMPLETED
+                )
+
+                print(done, len(done), *done, pending,
+                      len(pending), *pending, sep="\n")
+                if len(pending) > 0:
+                    for task in pending:
+                        task.cancel()
+                else:
+                    print(done)
+
+                    for task in done:
+                        print(task)
 
 
 def setup(bot):

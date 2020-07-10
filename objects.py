@@ -40,3 +40,24 @@ class BaseClass(object):
     def __init__(self, emoji, desc=None):
         self.desc = desc or "desc"
         self.emoji = emoji
+
+
+class Statistics(object):
+    MAX = 25
+    MIN = 0
+
+    def __init__(self, health, strength):
+        self.health = health
+        self.strength = strength
+
+    def __iadd__(self, value):
+        if self.health + value > self.MAX:
+            self.health = self.MAX
+        else:
+            self.health += value
+
+    def __isub__(self, value):
+        if self.health - value < self.MIN:
+            self.health = self.MIN
+        else:
+            self.health -= value

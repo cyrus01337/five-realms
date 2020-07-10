@@ -2,13 +2,15 @@
 Helper functions that assist with niche tasks
 """
 import os
+from collections.abc import Iterable
 
 import discord
 from discord.ext import commands
 
 import constants
-import database
+# import database
 import errors
+from objects import Field
 
 
 def get_cogs():
@@ -40,8 +42,16 @@ def embed(bot, **kwargs):
     embed.set_author(name=author.name, icon_url=str(author.avatar_url))
 
     if fields is not None:
-        for field in fields:
-            embed.add_field(**field.kwargs)
+        to_add = []
+
+        if isinstance(fields, Iterable):
+            for field in fields:
+                to_add.append(field.kwargs)
+        elif isinstance(fields, Field):
+            to_add.append(fields.kwargs)
+
+        for kwargs in to_add:
+            embed.add_field(**kwargs)
     return embed
 
 
@@ -64,20 +74,25 @@ async def command_prefix(bot, message):
     return commands.when_mentioned_or(constants.PREFIX)(bot, message)
 
 
-async def ensure_existence(ctx, exists: bool):
-    user_id = ctx.author.id
-    user = await database.get_user(user_id)
+async def ensure_existence(member, exists: bool, bot=None):
+    if isinstance(member, commands.Context):
+        ctx = member
+        member = ctx.author
+        bot = bot or ctx.bot
+    member_id = member.id
+    database = bot.db
+    player = await database.get_player(member_id)
 
     if exists:
-        if user is None:
+        if player is None:
             title = "You haven't registered yet!"
             desc = (f"Use `{constants.PREFIX}register` to join the Five "
                     f"Realms adventure!")
-            raise errors.UserRegistrationError(title, desc, user_id)
+            raise errors.UserRegistrationError(title, desc, member_id)
         else:
             return True
-    elif user is not None:
+    elif player is not None:
         title = "You've already registered, silly!"
         desc = "We can't have two of you!"
-        raise errors.UserRegistrationError(title, desc, user_id)
+        raise errors.UserRegistrationError(title, desc, member_id)
     return True

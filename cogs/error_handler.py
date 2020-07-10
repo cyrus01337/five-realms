@@ -1,5 +1,7 @@
 """
 """
+import asyncio
+
 from discord.ext import commands
 
 import errors
@@ -13,6 +15,7 @@ class ErrorHandler(commands.Cog):
         self.names = {}
         self.ignored = (
             commands.CommandNotFound,
+            asyncio.TimeoutError
         )
 
     @commands.Cog.listener()

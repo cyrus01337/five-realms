@@ -9,6 +9,7 @@ from objects import BaseRealm
 
 
 class Emoji:
+    ARROW_LEFT = "\U00002b05\N{VARIATION SELECTOR-16}"
     BABY_ANGEL = "\U0001f47c"
     BIRD = "\U0001f426"
     BOW_AND_ARROW = "\U0001f3f9"
@@ -17,6 +18,7 @@ class Emoji:
     CLOUD_WITH_SNOW = "\U0001f328\N{VARIATION SELECTOR-16}"
     COLLISION_SYMBOL = "\U0001f4a5"
     COMET = "\U00002604\N{VARIATION SELECTOR-16}"
+    CROSSED_SWORDS = "\U00002694\N{VARIATION SELECTOR-16}"
     CROSS_MARK = "\U0000274c"
     DAGGER = "\U0001f5e1\N{VARIATION SELECTOR-16}"
     DRAGON = "\U0001f409"
@@ -135,7 +137,7 @@ class Race(enum.Enum):
         return list(cls)
 
     @classmethod
-    def in_realm(cls, realm):
+    def within(cls, realm):
         ret = []
 
         for race in cls.all():

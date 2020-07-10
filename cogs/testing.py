@@ -4,6 +4,7 @@
 from discord.ext import commands
 
 # import checks
+# from enums import Class
 
 
 # command_attrs=dict(hidden=True)

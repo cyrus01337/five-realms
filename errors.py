@@ -30,3 +30,10 @@ class UserClassError(FiveRealmsError):
 class UserRegistrationError(DatabaseError):
     def __init__(self, title, desc, user_id):
         super().__init__(title, desc, user_id)
+
+
+class DisabledDMs(FiveRealmsError):
+    def __init__(self, title, desc, members):
+        self.title = title
+        self.desc = desc
+        self.members = members

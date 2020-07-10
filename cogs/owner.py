@@ -4,7 +4,7 @@
 import discord
 from discord.ext import commands
 
-import database
+# import database
 import utils
 from enums import Emoji
 
@@ -37,10 +37,10 @@ class Owner(commands.Cog, command_attrs=dict(hidden=True)):
 
         if medium == "screen":
             utils.clear_screen(self.bot)
-        elif medium in ["database", "db"]:
-            await database.clear()
+        elif medium in ["self.bot.db", "db"]:
+            await self.bot.db.clear()
         elif medium == "me":
-            await database.remove(ctx.author.id)
+            await self.bot.db.remove(ctx.author.id)
 
     @commands.command()
     async def close(self, ctx):

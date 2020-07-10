@@ -1,67 +1,76 @@
 """
 Async database wrapper
 """
-import os
-
 import aiosqlite
 
 # import errors
 from player import Player
 
-filename = "DATABASE.db"
+FILENAME = "DATABASE.db"
 
 
-async def init():
-    if os.path.exists(filename) is False:
-        async with aiosqlite.connect(filename) as db:
-            await db.execute("""
-                CREATE TABLE users(
-                    ID int NOT NULL,
-                    Realm varchar(6) NOT NULL
+class Database(object):
+    def requires_conn(coroutine):
+        async def predicate(self, *args, **kwargs):
+            async with aiosqlite.connect(FILENAME) as conn:
+                ret = await coroutine(self, conn, *args, **kwargs)
+                await conn.commit()
+
+                if ret is not None:
+                    return ret
+        return predicate
+
+    def __init__(self, loop):
+        self.loop = loop
+        self._tables = (
+            """
+                CREATE TABLE IF NOT EXISTS users(
+                    id int NOT NULL,
+                    realm varchar(6) NOT NULL,
+                    race varchar(12),
+                    level int,
+                    exp int,
+                    class_type varchar(7)
                 );
-            """)
-            await db.commit()
-    return await get()
+            """,
 
+            """
+                CREATE TABLE IF NOT EXISTS stats(
+                    id int NOT NULL,
+                    health int NOT NULL,
+                    strength decimal NOT NULL
+                );
+            """
+        )
 
-async def get():
-    async with aiosqlite.connect(filename) as db:
-        async with db.execute("SELECT * FROM users;") as cursor:
-            return await cursor.fetchall()
+        self.loop.create_task(self.__ainit__())
 
+    @requires_conn
+    async def __ainit__(self, conn):
+        for query in self._tables:
+            await conn.execute(query)
+        await conn.commit()
 
-async def get_user(user_id: int):
-    async with aiosqlite.connect(filename) as db:
-        query = "SELECT * FROM users WHERE id=?;"
+    @requires_conn
+    async def insert(self, conn, *params, **kwargs):
+        params += tuple(kwargs.values())
+        inserting = (", ").join("?" for _ in params)
+        query = f"INSERT INTO users VALUES({inserting});"
+
+        await conn.execute(query, params)
+
+    @requires_conn
+    async def remove(self, conn, user_id: int):
+        query = "DELETE FROM users WHERE id=?;"
         params = (
             user_id,
         )
 
-        async with db.execute(query, params) as cursor:
-            args = await cursor.fetchone()
+        await conn.execute(query, params)
+        await conn.commit()
 
-            if args is None:
-                return args
-            return Player(*args)
-
-
-async def insert(*params, **kwargs):
-    params += tuple(kwargs.values())
-
-    async with aiosqlite.connect(filename) as db:
-        inserting = (", ").join("?" for _ in params)
-        await db.execute(f"INSERT INTO users VALUES({inserting});", params)
-        await db.commit()
-
-
-async def remove(user_id: int):
-    async with aiosqlite.connect(filename) as db:
-        await db.execute("DELETE FROM users WHERE id=?;", (user_id,))
-        await db.commit()
-
-
-async def update(user_id: int, **params):
-    async with aiosqlite.connect(filename) as db:
+    @requires_conn
+    async def update(self, conn, user_id: int, **params):
         setting = ""
         keys = params.keys()
         values = params.values()
@@ -77,24 +86,41 @@ async def update(user_id: int, **params):
             if isinstance(v, str):
                 v = repr(v)
             setting += f"{k}={v}{append}"
+        query = f"UPDATE users SET {setting} WHERE id=?;"
         params = (
             user_id,
         )
-        await db.execute(f"UPDATE users SET {setting} WHERE id=?;", params)
-        await db.commit()
+
+        await conn.execute(query, params)
+
+    @requires_conn
+    async def clear(self, conn):
+        await conn.execute("DELETE FROM users;")
+
+    @requires_conn
+    async def get(self, conn):
+        async with conn.execute("SELECT * FROM users;") as cursor:
+            return await cursor.fetchall()
+
+    @requires_conn
+    async def get_player(self, conn, user_id: int):
+        query = "SELECT * FROM users WHERE id=?;"
+        params = (
+            user_id,
+        )
+
+        async with conn.execute(query, params) as cursor:
+            args = await cursor.fetchone()
+
+            # if data equals nothing, return nothing
+            if args is None:
+                return args
+            return Player(*args)
+
+    @requires_conn
+    async def save(self, conn, player: Player):
+        await self.update(player.id, **player.get_changes())
 
 
-async def clear():
-    async with aiosqlite.connect(filename) as db:
-        await db.execute("DELETE FROM users;")
-        await db.commit()
-
-
-async def save(cache):
-    async with aiosqlite.connect(filename) as db:
-        return db
-
-
-async def close():
-    async with aiosqlite.connect(filename) as db:
-        await db.close()
+async def create(loop):
+    return Database(loop)
